@@ -22,7 +22,13 @@ with open("token", "r") as f:
 
 def call_tensorboard():
     logger.info("Calling Tensorboard")
-    response = requests.get(url)
+    response = None
+    try:
+        response = requests.get(url)
+    except requests.exceptions.RequestException as e:
+        logger.error(e)
+        return None, None
+
     if response.ok:
         json_data = json.loads(response.content)
         df = pd.DataFrame(json_data, columns=["walltime", "iteration", "value"])
@@ -43,7 +49,7 @@ class TensorBot():
         self.dispatcher = self.updater.dispatcher
         self.job_queue = self.updater.job_queue
         self.chat_id = None
-        self.update_interval_mins = 30
+        self.update_interval_mins = 15
         self.last_iteration = None
 
         self.start_handler = CommandHandler('start', self.start)
@@ -62,6 +68,11 @@ class TensorBot():
     def send_plot(self, bot, update=None):
         if self.chat_id:
             last_iteration, last_value = call_tensorboard()
+            if last_iteration is None or last_value is None:
+                logger.error("Tensorboard can not be reached")
+                bot.send_message(chat_id=self.chat_id, text="Tensorboard can not be reached")
+                return
+
             self.last_iteration = last_iteration
             bot.send_message(chat_id=self.chat_id, text="Iteration: {}, Value: {}".format(
                 last_iteration, last_value))
