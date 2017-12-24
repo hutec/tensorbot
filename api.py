@@ -2,7 +2,9 @@ import requests
 import json
 import pandas as pd
 import telegram
-from telegram.ext import Updater, CommandHandler, JobQueue
+from telegram.ext import Updater, CommandHandler, JobQueue, MessageHandler, Filters
+
+from fuzzywuzzy import process
 
 import matplotlib
 matplotlib.use("Agg")
@@ -13,13 +15,34 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-url = 'http://localhost:6006/data/plugin/scalars/scalars?run=.&tag='
+base_url = 'http://localhost:6006'
+
+
+url = base_url + '/data/plugin/scalars/scalars?run=.&tag='
 # url = 'http://localhost:6006/data/plugin/scalars/scalars?run=.&tag=RMSE'
 
 
 token = None
 with open("token", "r") as f:
     token = f.read().splitlines()[0]
+
+def get_all_scalars():
+    url = base_url + '/data/plugin/scalars/tags'
+    response = None
+    try:
+        response = requests.get(url)
+    except requests.exceptions.RequestException as e:
+        logger.error(e)
+        return []
+
+    scalar_list = []
+    if response.ok:
+        json_data = json.loads(response.content)
+        for v in json_data.values()[0]:
+            scalar_list.append(v)
+
+    return scalar_list
+
 
 def get_scalar(scalar):
     """
@@ -42,6 +65,7 @@ def create_plot(df, scalar_name):
     """
     Plot scalar value over iterations.
     """
+    logger.info("Creating plot for scalar %s" % scalar_name)
     fig, axs = plt.subplots(1, 1)
 
     axs.plot(df["iteration"], df["value"])
@@ -84,13 +108,18 @@ class TensorBot():
 
         # scalars that will be send periodically
         self.auto_scalars = ["RMSE"]
+        self.scalar_list = get_all_scalars()
 
         self.start_handler = CommandHandler('start', self.start)
         self.plot_handler = CommandHandler('plot', self.send_scalar_plot, pass_args=True)
         self.scalar_handler = CommandHandler('scalar', self.send_scalar_value, pass_args=True)
+        self.text_handler = MessageHandler(Filters.text, self.message_reply)
+
+
         self.dispatcher.add_handler(self.start_handler)
         self.dispatcher.add_handler(self.plot_handler)
         self.dispatcher.add_handler(self.scalar_handler)
+        self.dispatcher.add_handler(self.text_handler)
         self.updater.start_polling()
         self.job_queue.run_repeating(self.callback_auto_scalars, interval=self.update_interval_mins * 60)
 
@@ -99,6 +128,16 @@ class TensorBot():
     def start(self, bot, update):
         bot.send_message(chat_id=update.message.chat_id, text="Hey, I am now your tensorbot")
         self.chat_id = update.message.chat_id
+
+    def message_reply(self, bot, update):
+        """
+        Fuzzy match string to available scalars and send plot
+        """
+        msg = update.message.text
+        scalar_match = process.extractOne(msg, self.scalar_list)[0]
+        logger.info("Matched %s" % scalar_match)
+        self.send_scalar_plot(bot, update, args=[scalar_match])
+        # bot.send_message(chat_id=update.message.chat_id, text=str(r))
 
     def send_scalar_value(self, bot, update, args):
         """
