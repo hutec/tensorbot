@@ -113,6 +113,7 @@ class TensorBot():
         self.start_handler = CommandHandler('start', self.start)
         self.plot_handler = CommandHandler('plot', self.send_scalar_plot, pass_args=True)
         self.scalar_handler = CommandHandler('scalar', self.send_scalar_value, pass_args=True)
+        self.interval_update_handler = CommandHandler('interval', self.update_interval, pass_args=True)
         self.text_handler = MessageHandler(Filters.text, self.message_reply)
 
 
@@ -120,8 +121,9 @@ class TensorBot():
         self.dispatcher.add_handler(self.plot_handler)
         self.dispatcher.add_handler(self.scalar_handler)
         self.dispatcher.add_handler(self.text_handler)
+        self.dispatcher.add_handler(self.interval_update_handler)
         self.updater.start_polling()
-        self.job_queue.run_repeating(self.callback_auto_scalars, interval=self.update_interval_mins * 60)
+        self.job_queue.run_repeating(self.send_auto_scalars, interval=self.update_interval_mins * 60)
 
         self.updater.idle()
 
@@ -168,6 +170,7 @@ class TensorBot():
             bot.send_message(chat_id=update.message.chat_id, text="Specify single scalar")
 
     def send_auto_scalars(self, bot, update=None):
+        self.scalar_list = get_all_scalars()
         if self.chat_id:
             for scalar in self.auto_scalars:
                 df = get_scalar(scalar)
@@ -180,10 +183,17 @@ class TensorBot():
         else:
             logger.info("Chat id is not set yet, use /start first")
 
-    def callback_auto_scalars(self, bot, job):
-        last_iteration, _ = call_tensorboard()
-        if last_iteration != self.last_iteration:
-            self.send_plot(bot)
+    def update_interval(self, bot, update, args):
+        if args[0].isdigit():
+            interval = int(args[0])
+            self.update_interval_mins = interval
+            
+            # TODO Check for right job, assuming a single job in the queue here
+            self.job_queue.jobs()[0].interval = interval * 60
+            bot.send_message(chat_id=update.message.chat_id, text="Updated interval")
+            logger.info("Updated interval %f" % self.update_interval_mins)
+        else:
+            bot.send_message(chat_id=update.message.chat_id, text="Could not update interval. Please provide a number")
 
 def main():
     bot = TensorBot()
