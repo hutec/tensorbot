@@ -90,6 +90,7 @@ class TensorBot:
         self.plot_handler = CommandHandler('plot', self.send_scalar_plot, pass_args=True)
         self.scalar_handler = CommandHandler('scalar', self.send_scalar_value, pass_args=True)
         self.interval_update_handler = CommandHandler('interval', self.update_interval, pass_args=True)
+        self.scalar_list_handler = CommandHandler('update', self.update_scalar_list)
         self.shutdown_handler = CommandHandler('stop', self.shutdown)
         self.text_handler = MessageHandler(Filters.text, self.message_reply)
 
@@ -98,6 +99,7 @@ class TensorBot:
         self.dispatcher.add_handler(self.scalar_handler)
         self.dispatcher.add_handler(self.text_handler)
         self.dispatcher.add_handler(self.interval_update_handler)
+        self.dispatcher.add_handler(self.scalar_list_handler)
         self.dispatcher.add_handler(self.shutdown_handler)
         self.updater.start_polling()
         self.job_queue.run_repeating(self.send_auto_scalars, interval=self.update_interval_mins * 60)
@@ -127,11 +129,14 @@ class TensorBot:
         Sends message with scalar iteration and value.
         """
         if len(args) == 1:
-            df = get_scalar(args[0])
-            if df is not None:
-                last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
-                bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
-                    args[0], last_iteration, last_value))
+            if args[0] in self.scalar_list:
+                df = get_scalar(args[0])
+                if df is not None:
+                    last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
+                    bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
+                        args[0], last_iteration, last_value))
+            else:
+                bot.send_message(chat_id=self.chat_id, text="%s is not in the list of available scalars" % args[0])
         else:
             bot.send_message(chat_id=update.message.chat_id, text="Specify single scalar")
 
@@ -140,13 +145,16 @@ class TensorBot:
         Sends plot of scalar value over iterations.
         """
         if len(args) == 1:
-            df = get_scalar(args[0])
-            create_plot(df, args[0])
-            if df is not None:
-                last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
-                bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
-                    args[0], last_iteration, last_value))
-                bot.send_photo(chat_id=self.chat_id, photo=open(str(args[0]) + ".png", "rb"))
+            if args[0] in self.scalar_list:
+                df = get_scalar(args[0])
+                if df is not None:
+                    create_plot(df, args[0])
+                    last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
+                    bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
+                        args[0], last_iteration, last_value))
+                    bot.send_photo(chat_id=self.chat_id, photo=open(str(args[0]) + ".png", "rb"))
+            else:
+                bot.send_message(chat_id=self.chat_id, text="%s is not in the list of available scalars" % args[0])
         else:
             bot.send_message(chat_id=update.message.chat_id, text="Specify single scalar")
 
@@ -184,6 +192,13 @@ class TensorBot:
             logger.info("Updated interval: %f minutes" % self.update_interval_mins)
         else:
             bot.send_message(chat_id=update.message.chat_id, text="Could not update interval. Please provide a number")
+
+    def update_scalar_list(self, bot, update):
+        """
+        Update list of available scalars.
+        """
+        self.scalar_list = get_all_scalars()
+        bot.send_message(chat_id=update.message.chat_id, text="New scalar list is: %s" % self.scalar_list)
 
     def shutdown(self, bot, update):
         logger.info("Shutting down")
