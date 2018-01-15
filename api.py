@@ -4,33 +4,30 @@ import pandas as pd
 import telegram
 from telegram.ext import Updater, CommandHandler, JobQueue, MessageHandler, Filters
 
+import matplotlib
+import matplotlib.pyplot as plt
+import logging
 from fuzzywuzzy import process
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-import logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+plt.switch_backend("Agg")
 
 base_url = 'http://localhost:6006'
-
-
 url = base_url + '/data/plugin/scalars/scalars?run=.&tag='
-# url = 'http://localhost:6006/data/plugin/scalars/scalars?run=.&tag=RMSE'
 
-
-token = None
 with open("token", "r") as f:
     token = f.read().splitlines()[0]
 
+
 def get_all_scalars():
-    url = base_url + '/data/plugin/scalars/tags'
-    response = None
+    """
+    Get a list of all available scalars from Tensorboard.
+    """
+    scalar_url = base_url + '/data/plugin/scalars/tags'
     try:
-        response = requests.get(url)
+        response = requests.get(scalar_url)
     except requests.exceptions.RequestException as e:
         logger.error(e)
         return []
@@ -49,7 +46,6 @@ def get_scalar(scalar):
     Get scalar values from Tensorboard.
     """
     logger.info("Calling Tensorboard to get scalar %s" % scalar)
-    response = None
     try:
         response = requests.get(url + scalar)
     except requests.exceptions.RequestException as e:
@@ -61,6 +57,7 @@ def get_scalar(scalar):
         df = pd.DataFrame(json_data, columns=["walltime", "iteration", "value"])
         return df
 
+
 def create_plot(df, scalar_name):
     """
     Plot scalar value over iterations.
@@ -71,42 +68,21 @@ def create_plot(df, scalar_name):
     axs.plot(df["iteration"], df["value"])
     fig.savefig("%s.png" % scalar_name)
 
-    #last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
 
-
-def call_tensorboard():
-    logger.info("Calling Tensorboard")
-    response = None
-    try:
-        response = requests.get(url)
-    except requests.exceptions.RequestException as e:
-        logger.error(e)
-        return None, None
-
-    if response.ok:
-        json_data = json.loads(response.content)
-        df = pd.DataFrame(json_data, columns=["walltime", "iteration", "value"])
-
-        fig, axs = plt.subplots(1, 1)
-
-        axs.plot(df["iteration"], df["value"])
-        fig.savefig("rmse.png")
-
-        last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
-
-        return last_iteration, last_value
-
-class TensorBot():
+class TensorBot:
+    """
+    Main class for Telegram bot.
+    """
     def __init__(self):
         self.bot = telegram.Bot(token=token)
         self.updater = Updater(token=token)
         self.dispatcher = self.updater.dispatcher
         self.job_queue = self.updater.job_queue
         self.chat_id = None
-        self.update_interval_mins = 15
+        self.update_interval_mins = 30
         self.last_iteration = None
 
-        # scalars that will be send periodically
+        # auto_scalars are scalars that will be send periodically
         self.auto_scalars = ["RMSE"]
         self.scalar_list = get_all_scalars()
 
@@ -114,36 +90,41 @@ class TensorBot():
         self.plot_handler = CommandHandler('plot', self.send_scalar_plot, pass_args=True)
         self.scalar_handler = CommandHandler('scalar', self.send_scalar_value, pass_args=True)
         self.interval_update_handler = CommandHandler('interval', self.update_interval, pass_args=True)
+        self.shutdown_handler = CommandHandler('stop', self.shutdown)
         self.text_handler = MessageHandler(Filters.text, self.message_reply)
-
 
         self.dispatcher.add_handler(self.start_handler)
         self.dispatcher.add_handler(self.plot_handler)
         self.dispatcher.add_handler(self.scalar_handler)
         self.dispatcher.add_handler(self.text_handler)
         self.dispatcher.add_handler(self.interval_update_handler)
+        self.dispatcher.add_handler(self.shutdown_handler)
         self.updater.start_polling()
         self.job_queue.run_repeating(self.send_auto_scalars, interval=self.update_interval_mins * 60)
 
         self.updater.idle()
 
     def start(self, bot, update):
+        """
+        Initial command, required for setting the chat_id.
+        """
         bot.send_message(chat_id=update.message.chat_id, text="Hey, I am now your tensorbot")
         self.chat_id = update.message.chat_id
 
     def message_reply(self, bot, update):
         """
-        Fuzzy match string to available scalars and send plot
+        Handle messages that are not commands.
+        Fuzzy match message string to available scalars and
+        send a plot for the matching scalar.
         """
         msg = update.message.text
         scalar_match = process.extractOne(msg, self.scalar_list)[0]
-        logger.info("Matched %s" % scalar_match)
+        logger.info("Matched message '%s' with scalar %s" % (msg, scalar_match))
         self.send_scalar_plot(bot, update, args=[scalar_match])
-        # bot.send_message(chat_id=update.message.chat_id, text=str(r))
 
     def send_scalar_value(self, bot, update, args):
         """
-        Sends mesage with scalar iteration and value
+        Sends message with scalar iteration and value.
         """
         if len(args) == 1:
             df = get_scalar(args[0])
@@ -156,7 +137,7 @@ class TensorBot():
 
     def send_scalar_plot(self, bot, update, args):
         """
-        Sends plot of scalar value over iterations
+        Sends plot of scalar value over iterations.
         """
         if len(args) == 1:
             df = get_scalar(args[0])
@@ -169,7 +150,13 @@ class TensorBot():
         else:
             bot.send_message(chat_id=update.message.chat_id, text="Specify single scalar")
 
-    def send_auto_scalars(self, bot, update=None):
+    def send_auto_scalars(self, bot):
+        """
+        Callback for periodically updating the list of all scalars
+        and sending a plot for all scalars in self.auto_scalars.
+
+        This needs the chat_id to be set, via an initial /start command.
+        """
         self.scalar_list = get_all_scalars()
         if self.chat_id:
             for scalar in self.auto_scalars:
@@ -184,19 +171,29 @@ class TensorBot():
             logger.info("Chat id is not set yet, use /start first")
 
     def update_interval(self, bot, update, args):
+        """
+        Update the interval for periodically sending updates.
+        """
         if args[0].isdigit():
             interval = int(args[0])
             self.update_interval_mins = interval
             
-            # TODO Check for right job, assuming a single job in the queue here
+            # TODO: Potentially there could be multiple jobs in the queue
             self.job_queue.jobs()[0].interval = interval * 60
             bot.send_message(chat_id=update.message.chat_id, text="Updated interval")
-            logger.info("Updated interval %f" % self.update_interval_mins)
+            logger.info("Updated interval: %f minutes" % self.update_interval_mins)
         else:
             bot.send_message(chat_id=update.message.chat_id, text="Could not update interval. Please provide a number")
 
+    def shutdown(self, bot, update):
+        logger.info("Shutting down")
+        bot.send_message(chat_id=update.message.chat_id, text="Shutting down. Goodbye")
+        exit()
+
+
 def main():
-    bot = TensorBot()
+    TensorBot()
+
 
 if __name__ == "__main__":
     main()
