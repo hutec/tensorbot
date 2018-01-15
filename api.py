@@ -8,73 +8,73 @@ import matplotlib
 import matplotlib.pyplot as plt
 import logging
 from fuzzywuzzy import process
+import argparse
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 plt.switch_backend("Agg")
 
-base_url = 'http://localhost:6006'
-url = base_url + '/data/plugin/scalars/scalars?run=.&tag='
 
-with open("token", "r") as f:
-    token = f.read().splitlines()[0]
+class TensorboardHelper:
+    def __init__(self, base_url):
+        self.base_url = base_url
+        self.run_url = self.base_url + '/data/plugin/scalars/scalars?run=.&tag='
 
+    def get_all_scalars(self):
+        """
+        Get a list of all available scalars from Tensorboard.
+        """
+        scalar_url = self.base_url + '/data/plugin/scalars/tags'
+        try:
+            response = requests.get(scalar_url)
+        except requests.exceptions.RequestException as e:
+            logger.error(e)
+            return []
 
-def get_all_scalars():
-    """
-    Get a list of all available scalars from Tensorboard.
-    """
-    scalar_url = base_url + '/data/plugin/scalars/tags'
-    try:
-        response = requests.get(scalar_url)
-    except requests.exceptions.RequestException as e:
-        logger.error(e)
-        return []
+        scalar_list = []
+        if response.ok:
+            json_data = json.loads(response.content)
+            for v in json_data.values()[0]:
+                scalar_list.append(v)
 
-    scalar_list = []
-    if response.ok:
-        json_data = json.loads(response.content)
-        for v in json_data.values()[0]:
-            scalar_list.append(v)
+        return scalar_list
 
-    return scalar_list
+    def get_scalar(self, scalar):
+        """
+        Get scalar values from Tensorboard.
+        """
+        logger.info("Calling Tensorboard to get scalar %s" % scalar)
+        try:
+            response = requests.get(self.run_url + scalar)
+        except requests.exceptions.RequestException as e:
+            logger.error(e)
+            return None
 
+        if response.ok:
+            json_data = json.loads(response.content)
+            df = pd.DataFrame(json_data, columns=["walltime", "iteration", "value"])
+            return df
 
-def get_scalar(scalar):
-    """
-    Get scalar values from Tensorboard.
-    """
-    logger.info("Calling Tensorboard to get scalar %s" % scalar)
-    try:
-        response = requests.get(url + scalar)
-    except requests.exceptions.RequestException as e:
-        logger.error(e)
-        return None
+    @staticmethod
+    def create_plot(df, scalar_name):
+        """
+        Plot scalar value over iterations.
+        """
+        logger.info("Creating plot for scalar %s" % scalar_name)
+        fig, axs = plt.subplots(1, 1)
 
-    if response.ok:
-        json_data = json.loads(response.content)
-        df = pd.DataFrame(json_data, columns=["walltime", "iteration", "value"])
-        return df
-
-
-def create_plot(df, scalar_name):
-    """
-    Plot scalar value over iterations.
-    """
-    logger.info("Creating plot for scalar %s" % scalar_name)
-    fig, axs = plt.subplots(1, 1)
-
-    axs.plot(df["iteration"], df["value"])
-    fig.savefig("%s.png" % scalar_name)
+        axs.plot(df["iteration"], df["value"])
+        fig.savefig("%s.png" % scalar_name)
 
 
 class TensorBot:
     """
     Main class for Telegram bot.
     """
-    def __init__(self):
+    def __init__(self, tensorboard, token):
         self.bot = telegram.Bot(token=token)
+        self.tensorboard = tensorboard
         self.updater = Updater(token=token)
         self.dispatcher = self.updater.dispatcher
         self.job_queue = self.updater.job_queue
@@ -84,7 +84,7 @@ class TensorBot:
 
         # auto_scalars are scalars that will be send periodically
         self.auto_scalars = ["RMSE"]
-        self.scalar_list = get_all_scalars()
+        self.scalar_list = self.tensorboard.get_all_scalars()
 
         self.start_handler = CommandHandler('start', self.start)
         self.plot_handler = CommandHandler('plot', self.send_scalar_plot, pass_args=True)
@@ -130,7 +130,7 @@ class TensorBot:
         """
         if len(args) == 1:
             if args[0] in self.scalar_list:
-                df = get_scalar(args[0])
+                df = self.tensorboard.get_scalar(args[0])
                 if df is not None:
                     last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
                     bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
@@ -146,9 +146,9 @@ class TensorBot:
         """
         if len(args) == 1:
             if args[0] in self.scalar_list:
-                df = get_scalar(args[0])
+                df = self.tensorboard.get_scalar(args[0])
                 if df is not None:
-                    create_plot(df, args[0])
+                    self.tensorboard.create_plot(df, args[0])
                     last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
                     bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
                         args[0], last_iteration, last_value))
@@ -165,12 +165,12 @@ class TensorBot:
 
         This needs the chat_id to be set, via an initial /start command.
         """
-        self.scalar_list = get_all_scalars()
+        self.scalar_list = self.tensorboard.get_all_scalars()
         if self.chat_id:
             for scalar in self.auto_scalars:
-                df = get_scalar(scalar)
+                df = self.tensorboard.get_scalar(scalar)
                 if df is not None:
-                    create_plot(df, scalar)
+                    self.tensorboard.create_plot(df, scalar)
                     last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
                     bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
                         scalar, last_iteration, last_value))
@@ -182,22 +182,26 @@ class TensorBot:
         """
         Update the interval for periodically sending updates.
         """
-        if args[0].isdigit():
-            interval = int(args[0])
-            self.update_interval_mins = interval
-            
-            # TODO: Potentially there could be multiple jobs in the queue
-            self.job_queue.jobs()[0].interval = interval * 60
-            bot.send_message(chat_id=update.message.chat_id, text="Updated interval")
-            logger.info("Updated interval: %f minutes" % self.update_interval_mins)
+        if len(args) == 1:
+            if args[0].isdigit():
+                interval = int(args[0])
+                self.update_interval_mins = interval
+
+                # TODO: Potentially there could be multiple jobs in the queue
+                self.job_queue.jobs()[0].interval = interval * 60
+                bot.send_message(chat_id=update.message.chat_id, text="Updated interval")
+                logger.info("Updated interval: %f minutes" % self.update_interval_mins)
+            else:
+                bot.send_message(chat_id=update.message.chat_id,
+                                 text="Could not update interval. Please provide a number")
         else:
-            bot.send_message(chat_id=update.message.chat_id, text="Could not update interval. Please provide a number")
+            bot.send_message(chat_id=update.message.chat_id, text="Specify interval value")
 
     def update_scalar_list(self, bot, update):
         """
         Update list of available scalars.
         """
-        self.scalar_list = get_all_scalars()
+        self.scalar_list = self.tensorboard.get_all_scalars()
         bot.send_message(chat_id=update.message.chat_id, text="New scalar list is: %s" % self.scalar_list)
 
     def shutdown(self, bot, update):
@@ -207,7 +211,17 @@ class TensorBot:
 
 
 def main():
-    TensorBot()
+    parser = argparse.ArgumentParser(description='Tensorbot - A simple bot interface for Tensorboard')
+    parser.add_argument("-u", "--url", type=str, help="Tensorboard base url", default="http://localhost:6006")
+    parser.add_argument("-t", "--token", type=str, help="Telegram token, default is read from file", default=None)
+
+    args = parser.parse_args()
+
+    with open("token", "r") as f:
+        token = f.read().splitlines()[0]
+
+    board = TensorboardHelper(args.url)
+    TensorBot(board, token)
 
 
 if __name__ == "__main__":
