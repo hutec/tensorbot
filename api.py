@@ -34,8 +34,9 @@ class TensorboardHelper:
 
         scalar_list = []
         if response.ok:
-            json_data = json.loads(response.content)
-            for v in json_data.values()[0]:
+            # . is taken as default run
+            json_data = response.json()["."]
+            for v in json_data.keys():
                 scalar_list.append(v)
 
         return scalar_list
@@ -52,7 +53,7 @@ class TensorboardHelper:
             return None
 
         if response.ok:
-            json_data = json.loads(response.content)
+            json_data = response.json()
             df = pd.DataFrame(json_data, columns=["walltime", "iteration", "value"])
             return df
 
