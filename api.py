@@ -128,35 +128,31 @@ class TensorBot:
         """
         Sends message with scalar iteration and value.
         """
-        if len(args) == 1:
-            if args[0] in self.scalar_list:
-                df = self.tensorboard.get_scalar(args[0])
-                if df is not None:
-                    last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
-                    bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
-                        args[0], last_iteration, last_value))
-            else:
-                bot.send_message(chat_id=self.chat_id, text="%s is not in the list of available scalars" % args[0])
+        scalar_name = " ".join(args)
+        if scalar_name in self.scalar_list:
+            df = self.tensorboard.get_scalar(scalar_name)
+            if df is not None:
+                last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
+                bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
+                    scalar_name, last_iteration, last_value))
         else:
-            bot.send_message(chat_id=update.message.chat_id, text="Specify single scalar")
+            bot.send_message(chat_id=self.chat_id, text="%s is not in the list of available scalars" % scalar_name)
 
     def send_scalar_plot(self, bot, update, args):
         """
         Sends plot of scalar value over iterations.
         """
-        if len(args) == 1:
-            if args[0] in self.scalar_list:
-                df = self.tensorboard.get_scalar(args[0])
-                if df is not None:
-                    self.tensorboard.create_plot(df, args[0])
-                    last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
-                    bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
-                        args[0], last_iteration, last_value))
-                    bot.send_photo(chat_id=self.chat_id, photo=open(str(args[0]) + ".png", "rb"))
-            else:
-                bot.send_message(chat_id=self.chat_id, text="%s is not in the list of available scalars" % args[0])
+        scalar_name = " ".join(args)
+        if scalar_name in self.scalar_list:
+            df = self.tensorboard.get_scalar(args[0])
+            if df is not None:
+                self.tensorboard.create_plot(df, scalar_name)
+                last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
+                bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
+                    scalar_name, last_iteration, last_value))
+                bot.send_photo(chat_id=self.chat_id, photo=open(str(scalar_name) + ".png", "rb"))
         else:
-            bot.send_message(chat_id=update.message.chat_id, text="Specify single scalar")
+            bot.send_message(chat_id=self.chat_id, text="%s is not in the list of available scalars" % scalar_name)
 
     def send_auto_scalars(self, bot):
         """
