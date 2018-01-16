@@ -1,6 +1,8 @@
 # tensorbot
 Tensorboard as a Telegram Chatbot.
 
+![Demo Image](demo.jpeg)
+
 
 ## Getting started
 
@@ -17,4 +19,8 @@ Tensorboard as a Telegram Chatbot.
 
 ### Communicating with tensorbot
 - `/start` to initiate chat
-- `/plot` to pull most recent plot
+- `/plot <scalar name>` to pull most recent plot
+- `/scalar <scalar name>` to get most recent iteration and value
+- `/update' to update the list of available scalars
+- `/interval <interval in seconds>` to update the interval time
+

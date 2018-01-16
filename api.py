@@ -17,9 +17,10 @@ plt.switch_backend("Agg")
 
 
 class TensorboardHelper:
-    def __init__(self, base_url):
+    def __init__(self, base_url, run_name):
         self.base_url = base_url
-        self.run_url = self.base_url + '/data/plugin/scalars/scalars?run=.&tag='
+        self.run_name = run_name
+        self.run_url = self.base_url + '/data/plugin/scalars/scalars?run=' + run_name + '&tag='
 
     def get_all_scalars(self):
         """
@@ -35,7 +36,7 @@ class TensorboardHelper:
         scalar_list = []
         if response.ok:
             # . is taken as default run
-            json_data = response.json()["."]
+            json_data = response.json()[self.run_name]
             for v in json_data.keys():
                 scalar_list.append(v)
 
@@ -211,13 +212,17 @@ def main():
     parser = argparse.ArgumentParser(description='Tensorbot - A simple bot interface for Tensorboard')
     parser.add_argument("-u", "--url", type=str, help="Tensorboard base url", default="http://localhost:6006")
     parser.add_argument("-t", "--token", type=str, help="Telegram token, default is read from file", default=None)
+    parser.add_argument("-r", "--run", type=str, help="Tensorboard run, defaults to current dir '.'", default=".")
 
     args = parser.parse_args()
+    token = args.token
+    run_name = args.run
 
-    with open("token", "r") as f:
-        token = f.read().splitlines()[0]
+    if not token:
+        with open("token", "r") as f:
+            token = f.read().splitlines()[0]
 
-    board = TensorboardHelper(args.url)
+    board = TensorboardHelper(args.url, run_name)
     TensorBot(board, token)
 
 
