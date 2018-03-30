@@ -85,15 +85,7 @@ class TensorBot:
         self.updater = Updater(token=token)
         self.current_run = run
         self.dispatcher = self.updater.dispatcher
-        self.job_queue = self.updater.job_queue
-        # Needed when sending automated updates
-        self.chat_id = None
-        self.update_interval_mins = 30
-        self.last_iteration = None
-
-        # auto_scalars are scalars that will be send periodically
-        self.auto_scalars = ["RMSE"]
-        #self.scalar_list = self.tensorboard.get_all_scalars()
+        self.scalars = []
 
         self.start_handler = CommandHandler('start', self.start)
         self.select_run_handler = CommandHandler('run', self.select_run)
@@ -117,7 +109,6 @@ class TensorBot:
         Initial command, required for setting the chat_id.
         """
         chat_id = update.message.chat_id
-        self.chat_id = update.message.chat_id
         bot.send_message(chat_id=chat_id, text="Hey, I am now your tensorbot")
         if not self.current_run:
             bot.send_message(chat_id=chat_id, text="It seems like you have not selected a run please do that now." +
@@ -165,11 +156,11 @@ class TensorBot:
                 bio.seek(0)
                 bot.send_photo(chat_id, photo=bio)
                 last_iteration, last_value = df[["iteration", "value"]].tail(1).values[0]
-                bot.send_message(chat_id=self.chat_id, text="{} - Iteration: {}, Value: {}".format(
+                bot.send_message(chat_id=chat_id, text="{} - Iteration: {}, Value: {}".format(
                     scalar_name, last_iteration, last_value))
         else:
             # Show menu with available scalars
-            bot.send_message(chat_id=self.chat_id, text="%s is not in the list of available scalars" % scalar_name)
+            bot.send_message(chat_id=chat_id, text="%s is not in the list of available scalars" % scalar_name)
 
 
     def send_scalar_value(self, bot, update, args):
@@ -186,7 +177,7 @@ class TensorBot:
                     scalar_name, last_iteration, last_value))
         else:
             # Show menu with available scalars
-            bot.send_message(chat_id=self.chat_id, text="%s is not in the list of available scalars" % scalar_name)
+            bot.send_message(chat_id=chat_id, text="%s is not in the list of available scalars" % scalar_name)
 
 
     def message_reply(self, bot, update):
