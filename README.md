@@ -22,16 +22,15 @@ are not in the requirements for this package.
 
 ### Running tensorbot and tensorboard
 - Start tensorboard, the default Tensorbot configuration assumes you are
-  running it inside the dir containing the log file: `tensorboard --logdir.`
-- Run `python tensorbot.py`. Optional  arguments are
+  running it inside the dir containing the log file: `tensorboard --logdir .`
+- Run `python bot.py`. Optional  arguments are
     - `--url`: Tensorboard url, default `http://localhost:6006`
     - `--token`: Your telegram bot token, default is reading the token from a file called token
     - `--run`: Select the run you want to use Tensorbot with, defaults to `.`
 
 ### Communicating with tensorbot
-- `/start` to initiate chat
+- `/start` to initiate chat and select run
+- `/run` to select run
 - `/plot <scalar name>` to pull most recent plot
-- `/scalar <scalar name>` to get most recent iteration and value
-- `/update` to update the list of available scalars
-- `/interval <interval in seconds>` to update the interval time
+- `/value <scalar name>` to get most recent iteration and value
 
