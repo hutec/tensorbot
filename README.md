@@ -11,6 +11,9 @@ The Bot should work with Python 2 & 3, but I'll assume you have pip installed.
 
 - Install requirements: `pip install -r requirements.txt`
 
+Running tensorboard requires the packages `tensorboard` and `tensorflow` which
+are not in the requirements for this package.
+
 ### Getting a token
 - You obviously need a Telegram account
 - Read https://core.telegram.org/bots
