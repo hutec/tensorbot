@@ -7,6 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from io import BytesIO
 
 import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import logging
 from fuzzywuzzy import process
